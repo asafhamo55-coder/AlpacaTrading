@@ -12,11 +12,12 @@ import os
 import sys
 import urllib.error
 import urllib.request
+from typing import Optional
 
 BASE_URL = "https://paper-api.alpaca.markets/v2"
 
 
-def request(method: str, path: str, key: str, secret: str, body: dict | None = None):
+def request(method: str, path: str, key: str, secret: str, body: Optional[dict] = None):
     headers = {
         "APCA-API-KEY-ID": key,
         "APCA-API-SECRET-KEY": secret,
