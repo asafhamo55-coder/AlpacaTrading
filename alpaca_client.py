@@ -6,15 +6,8 @@ from typing import List, Optional
 
 import requests
 from alpaca.trading.client import TradingClient
-from alpaca.trading.enums import (
-    ActivityType,
-    OrderSide,
-    OrderStatus,
-    QueryOrderStatus,
-    TimeInForce,
-)
+from alpaca.trading.enums import OrderSide, OrderStatus, QueryOrderStatus, TimeInForce
 from alpaca.trading.requests import (
-    GetAccountActivitiesRequest,
     GetOrdersRequest,
     MarketOrderRequest,
     TrailingStopOrderRequest,
@@ -120,12 +113,20 @@ class AlpacaClient:
 
     def get_recent_fills(self, days: int = 30) -> list:
         """FILL-type account activities within the last N days (most recent first)."""
-        after = (datetime.now(timezone.utc) - timedelta(days=days)).date()
+        after = (datetime.now(timezone.utc) - timedelta(days=days)).date().isoformat()
+        url = f"{self._cfg.alpaca_base_url}/account/activities/FILL"
         try:
-            req = GetAccountActivitiesRequest(activity_types=[ActivityType.FILL], after=after)
-            return list(self._client.get_account_activities(activity_filter=req))
+            resp = requests.get(
+                url,
+                headers=self._rest_headers,
+                params={"after": after, "page_size": 100, "direction": "desc"},
+                timeout=15,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            return data if isinstance(data, list) else []
         except Exception as e:
-            log.warning("get_account_activities failed: %s", e)
+            log.warning("get_recent_fills failed: %s", e)
             return []
 
     def get_portfolio_history(self, period: str = "1M", timeframe: str = "1D") -> Optional[dict]:

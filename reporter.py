@@ -63,15 +63,15 @@ def build_snapshot(client: "AlpacaClient") -> ReportSnapshot:
         })
     position_rows.sort(key=lambda r: r["pnl_usd"], reverse=True)
 
-    # Recent fills (last 30 days, capped to 20 rows)
+    # Recent fills (last 30 days, capped to 20 rows). Alpaca returns dicts via /account/activities/FILL.
     fill_rows = []
     for a in client.get_recent_fills(days=30)[:20]:
         fill_rows.append({
-            "time": getattr(a, "transaction_time", None),
-            "side": str(getattr(a, "side", "")),
-            "symbol": getattr(a, "symbol", ""),
-            "qty": _safe_float(getattr(a, "qty", 0)),
-            "price": _safe_float(getattr(a, "price", 0)),
+            "time": a.get("transaction_time"),
+            "side": (a.get("side") or "").upper(),
+            "symbol": a.get("symbol", ""),
+            "qty": _safe_float(a.get("qty")),
+            "price": _safe_float(a.get("price")),
         })
 
     # Portfolio history for longer windows
