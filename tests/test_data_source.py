@@ -1,6 +1,6 @@
 from datetime import date
 
-from data_source import _from_house, _from_senate, _parse_amount_range, _parse_date, _stable_id
+from data_source import _from_capitoltrades, _parse_amount_range, _parse_date, _stable_id
 
 
 def test_parse_amount_range():
@@ -12,31 +12,33 @@ def test_parse_amount_range():
 
 
 def test_parse_date_multiple_formats():
-    assert _parse_date("01/15/2026") == date(2026, 1, 15)
     assert _parse_date("2026-01-15") == date(2026, 1, 15)
+    assert _parse_date("2026-01-15T12:34:56Z") == date(2026, 1, 15)
+    assert _parse_date("01/15/2026") == date(2026, 1, 15)
     assert _parse_date(None) is None
     assert _parse_date("not a date") is None
 
 
 def test_stable_id_is_deterministic():
-    a = _stable_id("senate", "Smith", "AAPL", "01/15/2026", "Purchase", "$15,001 - $50,000")
-    b = _stable_id("senate", "Smith", "AAPL", "01/15/2026", "Purchase", "$15,001 - $50,000")
+    a = _stable_id("ct", "123", "Smith", "AAPL", "2026-01-15", "purchase")
+    b = _stable_id("ct", "123", "Smith", "AAPL", "2026-01-15", "purchase")
     assert a == b
-    c = _stable_id("senate", "Smith", "MSFT", "01/15/2026", "Purchase", "$15,001 - $50,000")
+    c = _stable_id("ct", "124", "Smith", "AAPL", "2026-01-15", "purchase")
     assert a != c
 
 
-def test_from_senate_maps_fields():
+def test_from_capitoltrades_maps_buy():
     raw = {
-        "senator": "Jane Smith",
-        "ticker": "aapl",
-        "asset_type": "Stock",
-        "type": "Purchase",
-        "transaction_date": "01/15/2026",
-        "disclosure_date": "01/20/2026",
-        "amount": "$15,001 - $50,000",
+        "txId": "42",
+        "politician": {"firstName": "Jane", "lastName": "Smith", "chamber": "Senate"},
+        "asset": {"assetTicker": "aapl", "assetType": "Stock"},
+        "txType": "buy",
+        "txDate": "2026-01-15",
+        "pubDate": "2026-01-20",
+        "valueMin": 15001,
+        "valueMax": 50000,
     }
-    d = _from_senate(raw)
+    d = _from_capitoltrades(raw)
     assert d is not None
     assert d.chamber == "senate"
     assert d.member == "Jane Smith"
@@ -48,25 +50,27 @@ def test_from_senate_maps_fields():
     assert d.amount_max_usd == 50000
 
 
-def test_from_house_maps_fields():
+def test_from_capitoltrades_maps_house_and_sell():
     raw = {
-        "representative": "John Doe",
-        "ticker": "MSFT",
-        "asset_description": "Microsoft Common Stock",
-        "type": "purchase",
-        "transaction_date": "2026-02-01",
-        "disclosure_date": "2026-02-10",
-        "amount": "$1,001 - $15,000",
+        "txId": "99",
+        "politician": {"firstName": "John", "lastName": "Doe", "chamber": "House"},
+        "asset": {"assetTicker": "MSFT", "assetType": "Common Stock"},
+        "txType": "sell",
+        "txDate": "2026-02-01",
+        "pubDate": "2026-02-10",
+        "value": "$1,001 - $15,000",
     }
-    d = _from_house(raw)
+    d = _from_capitoltrades(raw)
     assert d is not None
     assert d.chamber == "house"
     assert d.member == "John Doe"
     assert d.ticker == "MSFT"
-    assert d.transaction_type == "purchase"
+    assert d.transaction_type == "sale"
     assert d.amount_min_usd == 1001
 
 
-def test_from_senate_rejects_missing_ticker():
-    assert _from_senate({"senator": "X", "ticker": "", "type": "Purchase"}) is None
-    assert _from_senate({"senator": "X", "ticker": "--", "type": "Purchase"}) is None
+def test_from_capitoltrades_rejects_missing_ticker():
+    raw = {"politician": {"firstName": "X", "lastName": "Y"}, "asset": {"assetTicker": ""}, "txType": "buy"}
+    assert _from_capitoltrades(raw) is None
+    raw2 = {"politician": {"firstName": "X", "lastName": "Y"}, "asset": {"assetTicker": "--"}, "txType": "buy"}
+    assert _from_capitoltrades(raw2) is None
