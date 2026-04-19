@@ -116,12 +116,21 @@ def ensure_trailing_stops(
     client: AlpacaClient,
     notifier: Notifier,
 ) -> int:
-    """For every held position without an active trailing-stop sell, attach one. Returns count attached."""
+    """Attach a 5% trailing-stop sell to every AGENT-purchased position that lacks one.
+
+    Positions bought manually by the user (outside the agent) are intentionally skipped —
+    we identify agent positions by the BUY_ORDER_PREFIX on Alpaca's client_order_id.
+    """
+    agent_symbols = client.symbols_with_client_order_id_prefix(BUY_ORDER_PREFIX)
     positions = client.get_positions()
     open_trail = client.open_trailing_stop_symbols()
 
     attached = 0
+    skipped_manual = 0
     for p in positions:
+        if p.symbol not in agent_symbols:
+            skipped_manual += 1
+            continue
         if p.symbol in open_trail:
             continue
         # qty_available reflects shares not already tied up in open sell orders
@@ -149,6 +158,8 @@ def ensure_trailing_stops(
         )
         attached += 1
 
+    if skipped_manual:
+        log.info("Skipped %d non-agent position(s) (manual buys not eligible for agent trailing stops)", skipped_manual)
     return attached
 
 

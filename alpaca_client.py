@@ -93,6 +93,23 @@ class AlpacaClient:
             log.warning("get_open_orders failed: %s", e)
             return []
 
+    def symbols_with_client_order_id_prefix(self, prefix: str, lookback_days: int = 60) -> set[str]:
+        """Symbols the agent has placed orders for, identified by a client_order_id prefix.
+
+        Used to distinguish agent-originated positions from positions the user bought manually.
+        """
+        after = datetime.now(timezone.utc) - timedelta(days=lookback_days)
+        req = GetOrdersRequest(status=QueryOrderStatus.ALL, after=after, limit=500)
+        try:
+            orders = self._client.get_orders(filter=req)
+        except Exception as e:
+            log.warning("symbols_with_client_order_id_prefix failed: %s", e)
+            return set()
+        return {
+            o.symbol for o in orders
+            if o.client_order_id and o.client_order_id.startswith(prefix)
+        }
+
     def recent_filled_sells(self, minutes: int = 20) -> list:
         """Sell orders that filled within the last N minutes (for after-the-fact notifications)."""
         after = datetime.now(timezone.utc) - timedelta(minutes=minutes)
