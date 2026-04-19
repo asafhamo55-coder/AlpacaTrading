@@ -1,0 +1,50 @@
+name: Trading Agent
+
+on:
+  schedule:
+    # Every 15 minutes from 13:00 to 21:00 UTC.
+    # Covers 9:00 AM - 5:00 PM US Eastern year-round (EST = UTC-5, EDT = UTC-4).
+    # Script itself calls Alpaca's /clock and exits early when the market is closed.
+    - cron: "*/15 13-21 * * 1-5"
+  workflow_dispatch:
+
+concurrency:
+  group: trading-agent
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run trading agent
+        env:
+          ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
+          ALPACA_API_SECRET: ${{ secrets.ALPACA_API_SECRET }}
+          ALPACA_BASE_URL: ${{ secrets.ALPACA_BASE_URL }}
+          POSITION_SIZE_USD: ${{ vars.POSITION_SIZE_USD || '500' }}
+          TRAIL_PERCENT: ${{ vars.TRAIL_PERCENT || '5' }}
+          MAX_CONCURRENT_POSITIONS: ${{ vars.MAX_CONCURRENT_POSITIONS || '10' }}
+          MAX_TOTAL_EXPOSURE_USD: ${{ vars.MAX_TOTAL_EXPOSURE_USD || '10000' }}
+          LOOKBACK_DAYS: ${{ vars.LOOKBACK_DAYS || '7' }}
+          MIN_TRADE_SIZE_USD: ${{ vars.MIN_TRADE_SIZE_USD || '15000' }}
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          NOTIFY_TO: ${{ secrets.NOTIFY_TO }}
+          NOTIFY_FROM: ${{ secrets.NOTIFY_FROM }}
+        run: python main.py
