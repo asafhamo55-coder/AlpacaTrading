@@ -12,7 +12,11 @@ import requests
 log = logging.getLogger(__name__)
 
 BFF_URL = "https://bff.capitoltrades.com/trades"
-USER_AGENT = "Mozilla/5.0 (compatible; AlpacaTradingBot/1.0; +https://github.com/asafhamo55-coder/AlpacaTrading)"
+SITE_URL = "https://www.capitoltrades.com"
+USER_AGENT = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+)
 PAGE_SIZE = 100
 
 AMOUNT_RANGE_RE = re.compile(r"\$?([\d,]+)\s*[-–]\s*\$?([\d,]+)")
@@ -151,7 +155,16 @@ def _from_capitoltrades(raw: Dict[str, Any]) -> Optional[Disclosure]:
 
 
 def _fetch_page(params: dict, timeout: int = 20) -> Optional[dict]:
-    headers = {"User-Agent": USER_AGENT, "Accept": "application/json"}
+    headers = {
+        "User-Agent": USER_AGENT,
+        "Accept": "application/json, text/plain, */*",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Referer": f"{SITE_URL}/trades",
+        "Origin": SITE_URL,
+        "Sec-Fetch-Dest": "empty",
+        "Sec-Fetch-Mode": "cors",
+        "Sec-Fetch-Site": "same-site",
+    }
     try:
         resp = requests.get(BFF_URL, params=params, headers=headers, timeout=timeout)
         resp.raise_for_status()

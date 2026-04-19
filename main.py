@@ -3,10 +3,11 @@
 import logging
 import os
 import sys
+from datetime import date
 
 from alpaca_client import AlpacaClient
 from config import load_config
-from data_source import fetch_recent_disclosures
+from data_source import Disclosure, fetch_recent_disclosures
 from filters import apply_signal_filters, dedupe_by_ticker
 from notifier import Notifier
 from trader import ensure_trailing_stops, execute_buys, notify_recent_sell_fills
@@ -21,6 +22,26 @@ def _setup_logging() -> None:
 
 def _force_run() -> bool:
     return os.environ.get("FORCE_RUN", "").strip().lower() in ("1", "true", "yes")
+
+
+def _test_ticker() -> str:
+    return os.environ.get("TEST_TICKER", "").strip().upper()
+
+
+def _synthetic_signal(ticker: str) -> Disclosure:
+    today = date.today()
+    return Disclosure(
+        id=f"TEST-{ticker}-{today.isoformat()}",
+        chamber="test",
+        member="TEST USER",
+        ticker=ticker,
+        asset_type="stock",
+        transaction_type="purchase",
+        transaction_date=today,
+        disclosure_date=today,
+        amount_min_usd=50000,
+        amount_max_usd=100000,
+    )
 
 
 def main() -> int:
@@ -50,8 +71,13 @@ def main() -> int:
     if force:
         log.warning("FORCE_RUN=true — placing orders regardless of market clock (orders queue until next open)")
 
-    # 3. Fetch + filter signals.
-    disclosures = fetch_recent_disclosures(cfg.lookback_days)
+    # 3. Fetch + filter signals (or use synthetic test signal if TEST_TICKER set).
+    test_ticker = _test_ticker()
+    if test_ticker:
+        log.warning("TEST_TICKER=%s — bypassing data source with synthetic purchase signal", test_ticker)
+        disclosures = [_synthetic_signal(test_ticker)]
+    else:
+        disclosures = fetch_recent_disclosures(cfg.lookback_days)
     signals = apply_signal_filters(disclosures, cfg.min_trade_size_usd)
     signals = dedupe_by_ticker(signals)
     # Most recent first so we act on freshest signals under caps.

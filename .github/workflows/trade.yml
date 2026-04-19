@@ -12,6 +12,10 @@ on:
         description: "Force run — place orders even when market is closed (orders queue until next open)"
         required: false
         default: "false"
+      test_ticker:
+        description: "Test ticker — inject a synthetic purchase signal for this symbol (e.g. AAPL). Leave blank for normal operation."
+        required: false
+        default: ""
 
 concurrency:
   group: trading-agent
@@ -53,4 +57,5 @@ jobs:
           NOTIFY_TO: ${{ secrets.NOTIFY_TO }}
           NOTIFY_FROM: ${{ secrets.NOTIFY_FROM }}
           FORCE_RUN: ${{ inputs.force || 'false' }}
+          TEST_TICKER: ${{ inputs.test_ticker || '' }}
         run: python main.py
