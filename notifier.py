@@ -13,7 +13,7 @@ class Notifier:
     def __init__(self, cfg: Config):
         self._cfg = cfg
 
-    def send(self, subject: str, body: str) -> bool:
+    def send(self, subject: str, body: str, html: str = None) -> bool:
         if not self._cfg.email_enabled:
             log.info("Email disabled (SMTP not configured); would have sent: %s", subject)
             return False
@@ -23,6 +23,8 @@ class Notifier:
         msg["From"] = self._cfg.notify_from or self._cfg.smtp_user
         msg["To"] = self._cfg.notify_to
         msg.set_content(body)
+        if html:
+            msg.add_alternative(html, subtype="html")
 
         try:
             with smtplib.SMTP(self._cfg.smtp_host, self._cfg.smtp_port, timeout=20) as s:

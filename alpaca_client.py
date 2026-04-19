@@ -4,9 +4,17 @@ import logging
 from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 
+import requests
 from alpaca.trading.client import TradingClient
-from alpaca.trading.enums import OrderSide, OrderStatus, QueryOrderStatus, TimeInForce
+from alpaca.trading.enums import (
+    ActivityType,
+    OrderSide,
+    OrderStatus,
+    QueryOrderStatus,
+    TimeInForce,
+)
 from alpaca.trading.requests import (
+    GetAccountActivitiesRequest,
     GetOrdersRequest,
     MarketOrderRequest,
     TrailingStopOrderRequest,
@@ -19,11 +27,16 @@ log = logging.getLogger(__name__)
 
 class AlpacaClient:
     def __init__(self, cfg: Config):
+        self._cfg = cfg
         self._client = TradingClient(
             api_key=cfg.alpaca_api_key,
             secret_key=cfg.alpaca_api_secret,
             paper=cfg.is_paper,
         )
+        self._rest_headers = {
+            "APCA-API-KEY-ID": cfg.alpaca_api_key,
+            "APCA-API-SECRET-KEY": cfg.alpaca_api_secret,
+        }
 
     # --- market state -----------------------------------------------------
 
@@ -104,6 +117,32 @@ class AlpacaClient:
             client_order_id=client_order_id,
         )
         return self._client.submit_order(req)
+
+    def get_recent_fills(self, days: int = 30) -> list:
+        """FILL-type account activities within the last N days (most recent first)."""
+        after = (datetime.now(timezone.utc) - timedelta(days=days)).date()
+        try:
+            req = GetAccountActivitiesRequest(activity_types=[ActivityType.FILL], after=after)
+            return list(self._client.get_account_activities(activity_filter=req))
+        except Exception as e:
+            log.warning("get_account_activities failed: %s", e)
+            return []
+
+    def get_portfolio_history(self, period: str = "1M", timeframe: str = "1D") -> Optional[dict]:
+        """Return the raw portfolio history payload from Alpaca's REST API."""
+        url = f"{self._cfg.alpaca_base_url}/account/portfolio/history"
+        try:
+            resp = requests.get(
+                url,
+                headers=self._rest_headers,
+                params={"period": period, "timeframe": timeframe},
+                timeout=15,
+            )
+            resp.raise_for_status()
+            return resp.json()
+        except Exception as e:
+            log.warning("get_portfolio_history failed: %s", e)
+            return None
 
     def place_trailing_stop_sell(self, symbol: str, qty: float, trail_percent: float, client_order_id: str):
         req = TrailingStopOrderRequest(

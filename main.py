@@ -10,6 +10,7 @@ from config import load_config
 from data_source import Disclosure, fetch_recent_disclosures
 from filters import apply_signal_filters, dedupe_by_ticker
 from notifier import Notifier
+from reporter import build_snapshot, render_markdown
 from trader import ensure_trailing_stops, execute_buys, notify_recent_sell_fills
 
 
@@ -97,7 +98,24 @@ def main() -> int:
     except Exception as e:
         log.error("Trailing-stop loop failed: %s", e)
 
+    # 6. Write a portfolio report to the GitHub Actions job summary (Tier 1).
+    _write_job_summary(client)
+
     return 0
+
+
+def _write_job_summary(client: AlpacaClient) -> None:
+    path = os.environ.get("GITHUB_STEP_SUMMARY")
+    if not path:
+        return
+    try:
+        snap = build_snapshot(client)
+        markdown = render_markdown(snap, title="Alpaca Paper — Run Summary")
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(markdown)
+            f.write("\n")
+    except Exception as e:
+        logging.getLogger("main").error("Failed to write job summary: %s", e)
 
 
 if __name__ == "__main__":
