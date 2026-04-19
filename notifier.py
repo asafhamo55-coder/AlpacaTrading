@@ -35,17 +35,30 @@ class Notifier:
             log.error("Failed to send email: %s", e)
             return False
 
-    def notify_buy(self, symbol: str, qty: float, notional_usd: float, member: str, chamber: str, order_id: str):
-        subject = f"[Alpaca Paper] BUY {qty} {symbol}"
+    def notify_buy(self, symbol: str, notional_usd: float, member: str, chamber: str, order_id: str, qty_shares=None):
+        """
+        qty_shares: actual share count for whole-share orders. None for notional (fractional) orders —
+        Alpaca determines the exact share count at fill time.
+        """
+        if qty_shares is None:
+            subject = f"[Alpaca Paper] BUY ${notional_usd:,.0f} {symbol}"
+            size_line = (
+                f"Notional:   ${notional_usd:,.2f} (fractional order — share count set at fill)\n"
+            )
+        else:
+            subject = f"[Alpaca Paper] BUY {qty_shares} {symbol}"
+            size_line = (
+                f"Quantity:   {qty_shares} shares\n"
+                f"Notional:   ~${notional_usd:,.2f}\n"
+            )
         body = (
             f"Market buy submitted on Alpaca paper account.\n\n"
-            f"Symbol:   {symbol}\n"
-            f"Quantity: {qty}\n"
-            f"Notional: ${notional_usd:,.2f}\n"
-            f"Order ID: {order_id}\n\n"
+            f"Symbol:     {symbol}\n"
+            f"{size_line}"
+            f"Order ID:   {order_id}\n\n"
             f"Signal source:\n"
-            f"  Chamber: {chamber}\n"
-            f"  Member:  {member}\n"
+            f"  Chamber:  {chamber}\n"
+            f"  Member:   {member}\n"
         )
         self.send(subject, body)
 

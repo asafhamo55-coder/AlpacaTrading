@@ -67,6 +67,7 @@ def execute_buys(
             log.info("Symbol %s not tradable on Alpaca; skipping", d.ticker)
             continue
 
+        qty_shares = None  # None for notional (fractional) orders — share count determined at fill
         try:
             if client.supports_fractional(d.ticker):
                 order = client.place_market_buy_notional(
@@ -74,7 +75,6 @@ def execute_buys(
                     notional_usd=cfg.position_size_usd,
                     client_order_id=coid,
                 )
-                qty_submitted = cfg.position_size_usd  # display only
             else:
                 price = client.get_latest_trade_price(d.ticker)
                 if not price or price <= 0:
@@ -85,19 +85,22 @@ def execute_buys(
                     log.info("Position size $%.2f < 1 share of %s @ $%.2f; skipping", cfg.position_size_usd, d.ticker, price)
                     continue
                 order = client.place_market_buy_qty(d.ticker, qty, client_order_id=coid)
-                qty_submitted = qty
+                qty_shares = qty
         except Exception as e:
             log.warning("Buy failed for %s: %s", d.ticker, e)
             continue
 
-        log.info("Placed buy: %s qty=%s order_id=%s", d.ticker, qty_submitted, order.id)
+        if qty_shares is None:
+            log.info("Placed notional buy: %s $%.2f order_id=%s", d.ticker, cfg.position_size_usd, order.id)
+        else:
+            log.info("Placed buy: %s qty=%s order_id=%s", d.ticker, qty_shares, order.id)
         notifier.notify_buy(
             symbol=d.ticker,
-            qty=qty_submitted,
             notional_usd=cfg.position_size_usd,
             member=d.member,
             chamber=d.chamber,
             order_id=str(order.id),
+            qty_shares=qty_shares,
         )
         held_symbols.add(d.ticker)
         available_slots -= 1
