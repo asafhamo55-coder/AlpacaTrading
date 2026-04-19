@@ -7,6 +7,11 @@ on:
     # Script itself calls Alpaca's /clock and exits early when the market is closed.
     - cron: "*/15 13-21 * * 1-5"
   workflow_dispatch:
+    inputs:
+      force:
+        description: "Force run — place orders even when market is closed (orders queue until next open)"
+        required: false
+        default: "false"
 
 concurrency:
   group: trading-agent
@@ -47,4 +52,5 @@ jobs:
           SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
           NOTIFY_TO: ${{ secrets.NOTIFY_TO }}
           NOTIFY_FROM: ${{ secrets.NOTIFY_FROM }}
+          FORCE_RUN: ${{ inputs.force || 'false' }}
         run: python main.py

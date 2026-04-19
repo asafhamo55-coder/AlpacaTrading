@@ -1,6 +1,7 @@
 """Entry point: fetch signals, place buys, attach trailing stops, notify on sells."""
 
 import logging
+import os
 import sys
 
 from alpaca_client import AlpacaClient
@@ -16,6 +17,10 @@ def _setup_logging() -> None:
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s :: %(message)s",
     )
+
+
+def _force_run() -> bool:
+    return os.environ.get("FORCE_RUN", "").strip().lower() in ("1", "true", "yes")
 
 
 def main() -> int:
@@ -37,10 +42,13 @@ def main() -> int:
     except Exception as e:
         log.error("Sell-fill check failed: %s", e)
 
-    # 2. Only place new orders when the market is open.
-    if not client.is_market_open():
+    # 2. Only place new orders when the market is open, unless FORCE_RUN is set.
+    force = _force_run()
+    if not force and not client.is_market_open():
         log.info("Market is closed; skipping buy + trailing-stop attachment.")
         return 0
+    if force:
+        log.warning("FORCE_RUN=true — placing orders regardless of market clock (orders queue until next open)")
 
     # 3. Fetch + filter signals.
     disclosures = fetch_recent_disclosures(cfg.lookback_days)
