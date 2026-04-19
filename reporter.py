@@ -22,6 +22,7 @@ class ReportSnapshot:
     day_change_usd: float
     day_change_pct: float
     positions: list              # list of dict rows
+    pending_orders: list         # list of dict rows (orders accepted but not yet filled)
     recent_fills: list           # list of dict rows
     all_time_pct: Optional[float]
     week_pct: Optional[float]
@@ -63,6 +64,28 @@ def build_snapshot(client: "AlpacaClient") -> ReportSnapshot:
         })
     position_rows.sort(key=lambda r: r["pnl_usd"], reverse=True)
 
+    # Pending orders (open but not yet filled — includes market orders queued for next session)
+    pending_rows = []
+    for o in client.get_open_orders():
+        order_type = getattr(o, "order_type", None)
+        order_type_str = str(getattr(order_type, "value", order_type) or "").lower()
+        side_val = getattr(o, "side", None)
+        side_str = str(getattr(side_val, "value", side_val) or "").upper()
+        status_val = getattr(o, "status", None)
+        status_str = str(getattr(status_val, "value", status_val) or "")
+        qty_val = getattr(o, "qty", None)
+        notional_val = getattr(o, "notional", None)
+        pending_rows.append({
+            "symbol": getattr(o, "symbol", ""),
+            "side": side_str,
+            "order_type": order_type_str,
+            "qty": _safe_float(qty_val) if qty_val is not None else None,
+            "notional": _safe_float(notional_val) if notional_val is not None else None,
+            "status": status_str,
+            "submitted_at": getattr(o, "submitted_at", None),
+        })
+    pending_rows.sort(key=lambda r: r.get("submitted_at") or "", reverse=True)
+
     # Recent fills (last 30 days, capped to 20 rows). Alpaca returns dicts via /account/activities/FILL.
     fill_rows = []
     for a in client.get_recent_fills(days=30)[:20]:
@@ -96,6 +119,7 @@ def build_snapshot(client: "AlpacaClient") -> ReportSnapshot:
         day_change_usd=day_change_usd,
         day_change_pct=day_change_pct,
         positions=position_rows,
+        pending_orders=pending_rows,
         recent_fills=fill_rows,
         all_time_pct=all_time_pct,
         week_pct=week_pct,
@@ -152,6 +176,25 @@ def render_markdown(snap: ReportSnapshot, title: str = "Alpaca Paper — Portfol
                 f"| {r['symbol']} | {r['qty']:.4f} | {_fmt_usd(r['avg_entry'])} | "
                 f"{_fmt_usd(r['current'])} | {_fmt_usd(r['market_value'])} | "
                 f"{_fmt_usd(r['pnl_usd'])} | {_fmt_pct(r['pnl_pct'])} |"
+            )
+    lines.append("")
+
+    lines.append(f"### Pending orders ({len(snap.pending_orders)})")
+    if not snap.pending_orders:
+        lines.append("_No pending orders._")
+    else:
+        lines.append("| Submitted | Side | Symbol | Type | Qty / Notional | Status |")
+        lines.append("|---|---|---|---|---:|---|")
+        for r in snap.pending_orders:
+            if r.get("notional") is not None:
+                size = f"${r['notional']:,.2f}"
+            elif r.get("qty") is not None:
+                size = f"{r['qty']:g}"
+            else:
+                size = "—"
+            lines.append(
+                f"| {_fmt_time(r.get('submitted_at'))} | {r['side']} | {r['symbol']} | "
+                f"{r['order_type']} | {size} | {r['status']} |"
             )
     lines.append("")
 
@@ -227,6 +270,26 @@ def render_html(snap: ReportSnapshot, title: str = "Alpaca Paper — Portfolio R
                 f"<td class='num'>{_fmt_usd(r['current'])}</td>"
                 f"<td class='num'>{_fmt_usd(r['market_value'])}</td>"
                 f"{usd_cell(r['pnl_usd'])}{pct_cell(r['pnl_pct'])}</tr>"
+            )
+        html.append("</tbody></table>")
+
+    html.append(f"<h3>Pending orders ({len(snap.pending_orders)})</h3>")
+    if not snap.pending_orders:
+        html.append("<p><em>No pending orders.</em></p>")
+    else:
+        html.append("<table><thead><tr><th>Submitted</th><th>Side</th><th>Symbol</th><th>Type</th>"
+                    "<th class='num'>Qty / Notional</th><th>Status</th></tr></thead><tbody>")
+        for r in snap.pending_orders:
+            if r.get("notional") is not None:
+                size = f"${r['notional']:,.2f}"
+            elif r.get("qty") is not None:
+                size = f"{r['qty']:g}"
+            else:
+                size = "—"
+            html.append(
+                f"<tr><td>{_fmt_time(r.get('submitted_at'))}</td><td>{r['side']}</td>"
+                f"<td>{r['symbol']}</td><td>{r['order_type']}</td>"
+                f"<td class='num'>{size}</td><td>{r['status']}</td></tr>"
             )
         html.append("</tbody></table>")
 

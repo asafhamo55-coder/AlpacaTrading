@@ -15,8 +15,13 @@ def _snap(**overrides):
             {"symbol": "MSFT", "qty": 1.1, "avg_entry": 450.0, "current": 440.0,
              "market_value": 484.0, "pnl_usd": -11.0, "pnl_pct": -2.22},
         ],
+        pending_orders=[
+            {"symbol": "NVDA", "side": "BUY", "order_type": "market",
+             "qty": None, "notional": 500.0, "status": "accepted",
+             "submitted_at": "2026-04-19T10:15:00Z"},
+        ],
         recent_fills=[
-            {"time": "2026-04-21T13:32:10Z", "side": "OrderSide.BUY", "symbol": "AAPL",
+            {"time": "2026-04-21T13:32:10Z", "side": "BUY", "symbol": "AAPL",
              "qty": 2.4, "price": 208.0},
         ],
         all_time_pct=1.5,
@@ -36,10 +41,23 @@ def test_render_markdown_includes_positions_and_pnl():
 
 
 def test_render_markdown_handles_empty_state():
-    snap = _snap(positions=[], recent_fills=[])
+    snap = _snap(positions=[], pending_orders=[], recent_fills=[])
     md = render_markdown(snap)
     assert "No open positions" in md
+    assert "No pending orders" in md
     assert "No recent fills" in md
+
+
+def test_render_includes_pending_orders():
+    md = render_markdown(_snap())
+    assert "Pending orders (1)" in md
+    assert "NVDA" in md
+    assert "accepted" in md
+    assert "$500.00" in md
+
+    html = render_html(_snap())
+    assert "Pending orders (1)" in html
+    assert "NVDA" in html
 
 
 def test_render_html_has_table_markup():

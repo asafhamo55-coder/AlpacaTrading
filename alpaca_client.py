@@ -84,6 +84,15 @@ class AlpacaClient:
                 out.add(o.symbol)
         return out
 
+    def get_open_orders(self) -> list:
+        """All orders currently open (new / accepted / partially_filled / queued etc.)."""
+        req = GetOrdersRequest(status=QueryOrderStatus.OPEN, limit=500)
+        try:
+            return list(self._client.get_orders(filter=req))
+        except Exception as e:
+            log.warning("get_open_orders failed: %s", e)
+            return []
+
     def recent_filled_sells(self, minutes: int = 20) -> list:
         """Sell orders that filled within the last N minutes (for after-the-fact notifications)."""
         after = datetime.now(timezone.utc) - timedelta(minutes=minutes)
