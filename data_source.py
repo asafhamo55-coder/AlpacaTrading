@@ -1,7 +1,8 @@
-"""Fetch congressional trade disclosures from CapitolTrades (public BFF JSON endpoint)."""
+"""Fetch congressional trade disclosures from Quiver Quantitative (paid API)."""
 
 import hashlib
 import logging
+import os
 import re
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
@@ -11,13 +12,7 @@ import requests
 
 log = logging.getLogger(__name__)
 
-BFF_URL = "https://bff.capitoltrades.com/trades"
-SITE_URL = "https://www.capitoltrades.com"
-USER_AGENT = (
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
-    "(KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
-)
-PAGE_SIZE = 100
+QUIVER_LIVE_CONGRESS_URL = "https://api.quiverquant.com/beta/live/congresstrading"
 
 AMOUNT_RANGE_RE = re.compile(r"\$?([\d,]+)\s*[-–]\s*\$?([\d,]+)")
 
@@ -70,11 +65,11 @@ def _normalize_txn_type(s: Optional[str]) -> str:
     if not s:
         return "unknown"
     s = s.lower().strip()
-    if "buy" in s or "purchase" in s:
+    if "purchase" in s or "buy" in s:
         return "purchase"
-    if "partial" in s and "sale" in s:
+    if "partial" in s and ("sale" in s or "sell" in s):
         return "sale_partial"
-    if "sell" in s or "sale" in s:
+    if "sale" in s or "sell" in s:
         return "sale"
     if "exchange" in s:
         return "exchange"
@@ -86,59 +81,62 @@ def _stable_id(*parts: str) -> str:
     return h[:20]
 
 
-def _get(d: Dict[str, Any], *path, default=None):
-    """Safely navigate nested dicts/lists."""
-    cur: Any = d
-    for p in path:
-        if cur is None:
-            return default
-        if isinstance(p, int):
-            if isinstance(cur, list) and -len(cur) <= p < len(cur):
-                cur = cur[p]
-            else:
-                return default
-        else:
-            if isinstance(cur, dict):
-                cur = cur.get(p)
-            else:
-                return default
-    return cur if cur is not None else default
+def _normalize_chamber(raw: Optional[str]) -> str:
+    if not raw:
+        return "unknown"
+    s = raw.strip().lower()
+    if s.startswith("s"):
+        return "senate"
+    if s.startswith("r") or s.startswith("h"):  # "Representative" or "House"
+        return "house"
+    return "unknown"
 
 
-def _from_capitoltrades(raw: Dict[str, Any]) -> Optional[Disclosure]:
-    """Map a CapitolTrades BFF trade object to our Disclosure."""
-    ticker = (_get(raw, "asset", "assetTicker") or _get(raw, "assetTicker") or "").strip().upper()
+def _is_option(raw: Dict[str, Any]) -> bool:
+    """Quiver marks options via TickerType='OP' or via description fields."""
+    tt = (raw.get("TickerType") or "").strip().upper()
+    if tt == "OP":
+        return True
+    desc = (raw.get("Description") or raw.get("asset_type") or "").lower()
+    return any(k in desc for k in ("call", "put", "option"))
+
+
+def _from_quiver(raw: Dict[str, Any]) -> Optional[Disclosure]:
+    """Map a Quiver live/congresstrading item to our Disclosure."""
+    ticker = (raw.get("Ticker") or "").strip().upper()
     if not ticker or ticker in ("--", "N/A", "NONE"):
         return None
 
-    first = _get(raw, "politician", "firstName") or ""
-    last = _get(raw, "politician", "lastName") or ""
-    member = f"{first} {last}".strip() or (_get(raw, "politician", "fullName") or "Unknown")
+    member = (raw.get("Representative") or raw.get("Senator") or raw.get("Name") or "").strip()
+    chamber = _normalize_chamber(raw.get("House") or raw.get("Chamber"))
 
-    chamber_raw = (_get(raw, "politician", "chamber") or "").strip().lower()
-    chamber = "senate" if chamber_raw.startswith("s") else ("house" if chamber_raw.startswith("h") else "unknown")
+    tx_date = _parse_date(raw.get("TransactionDate") or raw.get("Transaction_Date"))
+    disc_date = _parse_date(raw.get("ReportDate") or raw.get("Report_Date") or raw.get("last_modified"))
 
-    tx_type_raw = _get(raw, "txType") or _get(raw, "transactionType") or ""
-    asset_type = (_get(raw, "asset", "assetType") or _get(raw, "assetType") or "").strip().lower()
-
-    txn_date = _parse_date(_get(raw, "txDate") or _get(raw, "_txDate") or _get(raw, "transactionDate"))
-    disc_date = _parse_date(_get(raw, "pubDate") or _get(raw, "_pubDate") or _get(raw, "disclosureDate"))
-
-    # Amount: CapitolTrades usually sends numeric valueMin/valueMax, plus a label in `value`.
-    v_min = _get(raw, "valueMin")
-    v_max = _get(raw, "valueMax")
-    if isinstance(v_min, (int, float)) and isinstance(v_max, (int, float)):
-        lo, hi = float(v_min), float(v_max)
+    # Quiver may give a numeric Amount, a Range string, or both.
+    amount = raw.get("Amount")
+    range_str = raw.get("Range") or raw.get("amount_range")
+    if isinstance(amount, (int, float)) and amount > 0:
+        # Amount is usually the LOWER bound of the disclosed range.
+        lo = float(amount)
+        # If we also have a range, pull the upper; else assume the SEC bucket doubled.
+        if range_str:
+            _, hi = _parse_amount_range(range_str)
+            hi = max(hi, lo)
+        else:
+            hi = lo
     else:
-        lo, hi = _parse_amount_range(_get(raw, "value") or _get(raw, "amount"))
+        lo, hi = _parse_amount_range(range_str)
+
+    asset_type = "option" if _is_option(raw) else "stock"
 
     did = _stable_id(
-        "ct",
-        str(_get(raw, "txId") or _get(raw, "id") or ""),
+        "quiver",
         member,
         ticker,
-        str(_get(raw, "txDate") or ""),
-        _normalize_txn_type(tx_type_raw),
+        str(raw.get("TransactionDate") or ""),
+        str(raw.get("Transaction") or ""),
+        str(amount or range_str or ""),
     )
     return Disclosure(
         id=did,
@@ -146,85 +144,57 @@ def _from_capitoltrades(raw: Dict[str, Any]) -> Optional[Disclosure]:
         member=member,
         ticker=ticker,
         asset_type=asset_type,
-        transaction_type=_normalize_txn_type(tx_type_raw),
-        transaction_date=txn_date,
+        transaction_type=_normalize_txn_type(raw.get("Transaction")),
+        transaction_date=tx_date,
         disclosure_date=disc_date,
         amount_min_usd=lo,
         amount_max_usd=hi,
     )
 
 
-def _fetch_page(params: dict, timeout: int = 20) -> Optional[dict]:
+def _fetch_all_quiver(api_key: str, timeout: int = 30) -> List[Dict[str, Any]]:
+    """Fetch the latest congressional-trading feed from Quiver."""
     headers = {
-        "User-Agent": USER_AGENT,
-        "Accept": "application/json, text/plain, */*",
-        "Accept-Language": "en-US,en;q=0.9",
-        "Referer": f"{SITE_URL}/trades",
-        "Origin": SITE_URL,
-        "Sec-Fetch-Dest": "empty",
-        "Sec-Fetch-Mode": "cors",
-        "Sec-Fetch-Site": "same-site",
+        "Accept": "application/json",
+        "Authorization": f"Bearer {api_key}",
     }
     try:
-        resp = requests.get(BFF_URL, params=params, headers=headers, timeout=timeout)
+        resp = requests.get(QUIVER_LIVE_CONGRESS_URL, headers=headers, timeout=timeout)
         resp.raise_for_status()
-        return resp.json()
+        data = resp.json()
+        if not isinstance(data, list):
+            log.warning("Quiver returned non-list response: %r", type(data).__name__)
+            return []
+        return data
     except Exception as e:
-        log.warning("CapitolTrades fetch failed (%s): %s", params, e)
-        return None
+        log.error("Quiver fetch failed: %s", e)
+        return []
 
 
 def fetch_recent_disclosures(lookback_days: int, today: Optional[date] = None) -> List[Disclosure]:
-    """Fetch recent disclosures from CapitolTrades, newest first, stopping once past the lookback window."""
+    """Fetch Quiver's live congressional trading feed, filtered to the lookback window."""
+    api_key = os.environ.get("QUIVER_API_KEY")
+    if not api_key:
+        log.error("QUIVER_API_KEY not set — cannot fetch disclosures")
+        return []
+
     today = today or date.today()
     cutoff = today - timedelta(days=lookback_days)
 
+    raw_items = _fetch_all_quiver(api_key)
+    log.info("Quiver returned %d raw items", len(raw_items))
+
     out: List[Disclosure] = []
-    page = 1
-    max_pages = 20  # hard cap — we sort by -pubDate, so 20 * 100 = 2000 rows is plenty
+    skipped = 0
+    for raw in raw_items:
+        d = _from_quiver(raw)
+        if d is None:
+            skipped += 1
+            continue
+        ref = d.disclosure_date or d.transaction_date
+        if ref is None or ref < cutoff:
+            continue
+        out.append(d)
 
-    while page <= max_pages:
-        params = {
-            "page": page,
-            "pageSize": PAGE_SIZE,
-            "sortBy": "-pubDate",
-        }
-        body = _fetch_page(params)
-        if body is None:
-            break
-
-        rows = body.get("data") if isinstance(body, dict) else None
-        if not rows:
-            break
-
-        page_added = 0
-        hit_cutoff = False
-        for raw in rows:
-            d = _from_capitoltrades(raw)
-            if d is None:
-                continue
-            ref = d.disclosure_date or d.transaction_date
-            if ref is None:
-                continue
-            if ref < cutoff:
-                hit_cutoff = True
-                continue
-            out.append(d)
-            page_added += 1
-
-        log.info("CapitolTrades page %d: parsed=%d added=%d total=%d", page, len(rows), page_added, len(out))
-
-        if hit_cutoff:
-            # Page contained rows older than cutoff; since they're sorted desc, we're done.
-            break
-        # If no rows were added from a full page (all rejected), bail to avoid spinning.
-        if page_added == 0:
-            break
-        # If the page is short, that's the end.
-        if len(rows) < PAGE_SIZE:
-            break
-
-        page += 1
-
-    log.info("Fetched %d disclosures in last %d days", len(out), lookback_days)
+    log.info("Parsed %d disclosures in last %d days (skipped %d unparseable)", len(out), lookback_days, skipped)
     return out

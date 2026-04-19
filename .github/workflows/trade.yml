@@ -44,6 +44,7 @@ jobs:
           ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
           ALPACA_API_SECRET: ${{ secrets.ALPACA_API_SECRET }}
           ALPACA_BASE_URL: ${{ secrets.ALPACA_BASE_URL }}
+          QUIVER_API_KEY: ${{ secrets.QUIVER_API_KEY }}
           POSITION_SIZE_USD: ${{ vars.POSITION_SIZE_USD || '500' }}
           TRAIL_PERCENT: ${{ vars.TRAIL_PERCENT || '5' }}
           MAX_CONCURRENT_POSITIONS: ${{ vars.MAX_CONCURRENT_POSITIONS || '10' }}

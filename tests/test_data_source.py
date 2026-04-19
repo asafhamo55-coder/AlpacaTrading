@@ -1,6 +1,6 @@
 from datetime import date
 
-from data_source import _from_capitoltrades, _parse_amount_range, _parse_date, _stable_id
+from data_source import _from_quiver, _parse_amount_range, _parse_date, _stable_id
 
 
 def test_parse_amount_range():
@@ -20,25 +20,26 @@ def test_parse_date_multiple_formats():
 
 
 def test_stable_id_is_deterministic():
-    a = _stable_id("ct", "123", "Smith", "AAPL", "2026-01-15", "purchase")
-    b = _stable_id("ct", "123", "Smith", "AAPL", "2026-01-15", "purchase")
+    a = _stable_id("quiver", "Smith", "AAPL", "2026-01-15", "Purchase", "15001")
+    b = _stable_id("quiver", "Smith", "AAPL", "2026-01-15", "Purchase", "15001")
     assert a == b
-    c = _stable_id("ct", "124", "Smith", "AAPL", "2026-01-15", "purchase")
+    c = _stable_id("quiver", "Smith", "MSFT", "2026-01-15", "Purchase", "15001")
     assert a != c
 
 
-def test_from_capitoltrades_maps_buy():
+def test_from_quiver_maps_senate_purchase():
     raw = {
-        "txId": "42",
-        "politician": {"firstName": "Jane", "lastName": "Smith", "chamber": "Senate"},
-        "asset": {"assetTicker": "aapl", "assetType": "Stock"},
-        "txType": "buy",
-        "txDate": "2026-01-15",
-        "pubDate": "2026-01-20",
-        "valueMin": 15001,
-        "valueMax": 50000,
+        "Representative": "Jane Smith",
+        "Ticker": "aapl",
+        "Transaction": "Purchase",
+        "TransactionDate": "2026-01-15",
+        "ReportDate": "2026-01-20",
+        "Amount": 15001,
+        "Range": "$15,001 - $50,000",
+        "House": "Senate",
+        "TickerType": "ST",
     }
-    d = _from_capitoltrades(raw)
+    d = _from_quiver(raw)
     assert d is not None
     assert d.chamber == "senate"
     assert d.member == "Jane Smith"
@@ -48,29 +49,44 @@ def test_from_capitoltrades_maps_buy():
     assert d.disclosure_date == date(2026, 1, 20)
     assert d.amount_min_usd == 15001
     assert d.amount_max_usd == 50000
+    assert d.asset_type == "stock"
 
 
-def test_from_capitoltrades_maps_house_and_sell():
+def test_from_quiver_maps_house_sale():
     raw = {
-        "txId": "99",
-        "politician": {"firstName": "John", "lastName": "Doe", "chamber": "House"},
-        "asset": {"assetTicker": "MSFT", "assetType": "Common Stock"},
-        "txType": "sell",
-        "txDate": "2026-02-01",
-        "pubDate": "2026-02-10",
-        "value": "$1,001 - $15,000",
+        "Representative": "John Doe",
+        "Ticker": "MSFT",
+        "Transaction": "Sale (Partial)",
+        "TransactionDate": "2026-02-01",
+        "ReportDate": "2026-02-10",
+        "Range": "$1,001 - $15,000",
+        "House": "Representative",
+        "TickerType": "ST",
     }
-    d = _from_capitoltrades(raw)
+    d = _from_quiver(raw)
     assert d is not None
     assert d.chamber == "house"
-    assert d.member == "John Doe"
-    assert d.ticker == "MSFT"
-    assert d.transaction_type == "sale"
+    assert d.transaction_type == "sale_partial"
     assert d.amount_min_usd == 1001
+    assert d.asset_type == "stock"
 
 
-def test_from_capitoltrades_rejects_missing_ticker():
-    raw = {"politician": {"firstName": "X", "lastName": "Y"}, "asset": {"assetTicker": ""}, "txType": "buy"}
-    assert _from_capitoltrades(raw) is None
-    raw2 = {"politician": {"firstName": "X", "lastName": "Y"}, "asset": {"assetTicker": "--"}, "txType": "buy"}
-    assert _from_capitoltrades(raw2) is None
+def test_from_quiver_flags_options():
+    raw = {
+        "Representative": "Jane Smith",
+        "Ticker": "NVDA",
+        "Transaction": "Purchase",
+        "TransactionDate": "2026-03-01",
+        "ReportDate": "2026-03-05",
+        "Range": "$15,001 - $50,000",
+        "House": "Senate",
+        "TickerType": "OP",
+    }
+    d = _from_quiver(raw)
+    assert d is not None
+    assert d.asset_type == "option"
+
+
+def test_from_quiver_rejects_missing_ticker():
+    assert _from_quiver({"Representative": "X", "Ticker": "", "Transaction": "Purchase"}) is None
+    assert _from_quiver({"Representative": "X", "Ticker": "--", "Transaction": "Purchase"}) is None

@@ -8,7 +8,7 @@ from data_source import Disclosure
 
 log = logging.getLogger(__name__)
 
-OPTION_HINTS = ("call", "put", " option", "option ")
+OPTION_HINTS = ("call", "put", "option")
 NON_EQUITY_HINTS = ("bond", "note", "treasury", "municipal", "mutual fund", "etf", "fund")
 TICKER_RE = re.compile(r"^[A-Z][A-Z0-9.\-]{0,9}$")
 

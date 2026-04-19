@@ -21,6 +21,9 @@ class Config:
     lookback_days: int
     min_trade_size_usd: float
 
+    # Data source
+    quiver_api_key: Optional[str]
+
     # Notifications (optional — emailing is a no-op if host/user/password are missing)
     smtp_host: Optional[str]
     smtp_port: int
@@ -57,6 +60,7 @@ def load_config() -> Config:
         max_total_exposure_usd=float(os.environ.get("MAX_TOTAL_EXPOSURE_USD", "10000")),
         lookback_days=int(os.environ.get("LOOKBACK_DAYS", "7")),
         min_trade_size_usd=float(os.environ.get("MIN_TRADE_SIZE_USD", "15000")),
+        quiver_api_key=os.environ.get("QUIVER_API_KEY"),
         smtp_host=os.environ.get("SMTP_HOST", "smtp.gmail.com"),
         smtp_port=int(os.environ.get("SMTP_PORT", "587")),
         smtp_user=smtp_user,
