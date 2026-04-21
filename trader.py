@@ -116,32 +116,51 @@ def ensure_trailing_stops(
     client: AlpacaClient,
     notifier: Notifier,
 ) -> int:
-    """Attach a 5% trailing-stop sell to every AGENT-purchased position that lacks one.
+    """Attach a trailing-stop sell to every AGENT-purchased position that lacks one.
 
-    Positions bought manually by the user (outside the agent) are intentionally skipped —
-    we identify agent positions by the BUY_ORDER_PREFIX on Alpaca's client_order_id.
+    Alpaca trailing-stop orders only accept WHOLE shares, so we floor the qty.
+    Positions with less than 1 whole share cannot be protected with a trailing stop
+    and are logged but skipped. Positions bought manually (identified by absence of
+    the BUY_ORDER_PREFIX on the Alpaca client_order_id) are left untouched.
     """
+    import math
+
     agent_symbols = client.symbols_with_client_order_id_prefix(BUY_ORDER_PREFIX)
     positions = client.get_positions()
     open_trail = client.open_trailing_stop_symbols()
 
     attached = 0
     skipped_manual = 0
+    skipped_under_one_share = 0
     for p in positions:
         if p.symbol not in agent_symbols:
             skipped_manual += 1
             continue
         if p.symbol in open_trail:
             continue
-        # qty_available reflects shares not already tied up in open sell orders
-        qty = float(getattr(p, "qty_available", p.qty))
-        if qty <= 0:
+        available = float(getattr(p, "qty_available", p.qty))
+        if available <= 0:
             continue
+        whole_qty = int(math.floor(available))
+        if whole_qty < 1:
+            log.warning(
+                "Cannot attach trailing stop to %s — only %.4f fractional shares held (Alpaca requires whole shares)",
+                p.symbol, available,
+            )
+            skipped_under_one_share += 1
+            continue
+        remainder = available - whole_qty
+        if remainder > 0.0001:
+            log.info(
+                "Trailing stop on %s will protect %d of %.4f shares (%.4f fractional remainder left unprotected)",
+                p.symbol, whole_qty, available, remainder,
+            )
+
         coid = _trail_client_order_id(p.symbol)
         try:
             order = client.place_trailing_stop_sell(
                 symbol=p.symbol,
-                qty=qty,
+                qty=whole_qty,
                 trail_percent=cfg.trail_percent,
                 client_order_id=coid,
             )
@@ -149,17 +168,19 @@ def ensure_trailing_stops(
             log.warning("Trailing-stop attach failed for %s: %s", p.symbol, e)
             continue
 
-        log.info("Attached trailing stop: %s qty=%s trail=%s%% order_id=%s", p.symbol, qty, cfg.trail_percent, order.id)
+        log.info("Attached trailing stop: %s qty=%d trail=%s%% order_id=%s", p.symbol, whole_qty, cfg.trail_percent, order.id)
         notifier.notify_trailing_stop_attached(
             symbol=p.symbol,
-            qty=qty,
+            qty=whole_qty,
             trail_pct=cfg.trail_percent,
             order_id=str(order.id),
         )
         attached += 1
 
     if skipped_manual:
-        log.info("Skipped %d non-agent position(s) (manual buys not eligible for agent trailing stops)", skipped_manual)
+        log.info("Skipped %d non-agent position(s)", skipped_manual)
+    if skipped_under_one_share:
+        log.warning("Skipped %d position(s) with < 1 whole share (not protectable by trailing stop)", skipped_under_one_share)
     return attached
 
 
