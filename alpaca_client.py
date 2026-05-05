@@ -30,6 +30,12 @@ class AlpacaClient:
             "APCA-API-KEY-ID": cfg.alpaca_api_key,
             "APCA-API-SECRET-KEY": cfg.alpaca_api_secret,
         }
+        # Normalize the REST base: ensure exactly one /v2 suffix.
+        # alpaca-py adds /v2 internally, but our raw HTTP calls (activities, portfolio
+        # history) must include it explicitly. Configured ALPACA_BASE_URL may or may
+        # not already have /v2.
+        base = cfg.alpaca_base_url.rstrip("/")
+        self._rest_base = base if base.endswith("/v2") else f"{base}/v2"
 
     # --- market state -----------------------------------------------------
 
@@ -140,7 +146,7 @@ class AlpacaClient:
     def get_recent_fills(self, days: int = 30) -> list:
         """FILL-type account activities within the last N days (most recent first)."""
         after = (datetime.now(timezone.utc) - timedelta(days=days)).date().isoformat()
-        url = f"{self._cfg.alpaca_base_url}/account/activities/FILL"
+        url = f"{self._rest_base}/account/activities/FILL"
         try:
             resp = requests.get(
                 url,
@@ -157,7 +163,7 @@ class AlpacaClient:
 
     def get_portfolio_history(self, period: str = "1M", timeframe: str = "1D") -> Optional[dict]:
         """Return the raw portfolio history payload from Alpaca's REST API."""
-        url = f"{self._cfg.alpaca_base_url}/account/portfolio/history"
+        url = f"{self._rest_base}/account/portfolio/history"
         try:
             resp = requests.get(
                 url,
