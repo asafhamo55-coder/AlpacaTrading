@@ -143,6 +143,18 @@ class AlpacaClient:
         )
         return self._client.submit_order(req)
 
+    def place_market_sell_qty(self, symbol: str, qty: float, client_order_id: str):
+        """Market sell. Use for liquidating orphan fractional positions
+        that trailing stops can't protect (Alpaca requires whole shares for trailing stops)."""
+        req = MarketOrderRequest(
+            symbol=symbol,
+            qty=qty,
+            side=OrderSide.SELL,
+            time_in_force=TimeInForce.DAY,
+            client_order_id=client_order_id,
+        )
+        return self._client.submit_order(req)
+
     def get_recent_fills(self, days: int = 30) -> list:
         """FILL-type account activities within the last N days (most recent first)."""
         after = (datetime.now(timezone.utc) - timedelta(days=days)).date().isoformat()

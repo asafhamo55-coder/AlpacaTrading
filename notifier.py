@@ -75,6 +75,20 @@ class Notifier:
         )
         self.send(subject, body)
 
+    def notify_orphan_liquidation(self, symbol: str, qty: float, market_value: float, order_id: str):
+        subject = f"[Alpaca Paper] Liquidating orphan fraction: {qty:.4f} {symbol}"
+        body = (
+            f"Selling unprotected fractional remainder.\n\n"
+            f"Symbol:      {symbol}\n"
+            f"Quantity:    {qty:.4f} shares (< 1 whole share)\n"
+            f"Est. value:  ${market_value:,.2f}\n"
+            f"Order ID:    {order_id}\n\n"
+            f"This position couldn't be protected by a trailing stop because Alpaca\n"
+            f"requires whole shares for trailing-stop orders. Selling clears the slot\n"
+            f"for new signals.\n"
+        )
+        self.send(subject, body)
+
     def notify_sell_triggered(self, symbol: str, qty: float, filled_avg: float, order_id: str):
         subject = f"[Alpaca Paper] SELL filled (trail stop) {qty} {symbol}"
         body = (

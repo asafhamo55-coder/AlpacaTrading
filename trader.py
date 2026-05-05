@@ -14,6 +14,7 @@ log = logging.getLogger(__name__)
 
 BUY_ORDER_PREFIX = "buy-"
 TRAIL_ORDER_PREFIX = "trail-"
+LIQ_ORDER_PREFIX = "liq-"
 
 
 def _buy_client_order_id(disclosure_id: str) -> str:
@@ -23,6 +24,12 @@ def _buy_client_order_id(disclosure_id: str) -> str:
 
 def _trail_client_order_id(symbol: str) -> str:
     return f"{TRAIL_ORDER_PREFIX}{symbol}-{int(time.time())}"
+
+
+def _liq_client_order_id(symbol: str) -> str:
+    """Stable per-day id so retrying within a day doesn't double-submit."""
+    from datetime import date
+    return f"{LIQ_ORDER_PREFIX}{symbol}-{date.today().isoformat()}"
 
 
 def execute_buys(
@@ -182,6 +189,55 @@ def ensure_trailing_stops(
     if skipped_under_one_share:
         log.warning("Skipped %d position(s) with < 1 whole share (not protectable by trailing stop)", skipped_under_one_share)
     return attached
+
+
+def liquidate_orphan_fractions(
+    cfg: Config,
+    client: AlpacaClient,
+    notifier: Notifier,
+) -> int:
+    """Sell any agent-purchased position with qty < 1 whole share.
+
+    These "orphan fractions" are leftover after trailing stops triggered and sold the
+    integer portion. Alpaca disallows fractional shares on trailing-stop orders, so
+    they sit unprotected. Liquidating frees the slot for new signals and removes
+    unprotected risk (small as it usually is).
+    """
+    agent_symbols = client.symbols_with_client_order_id_prefix(BUY_ORDER_PREFIX)
+    seen_orders = client.recent_client_order_ids(lookback_days=7)
+    positions = client.get_positions()
+
+    sold = 0
+    for p in positions:
+        if p.symbol not in agent_symbols:
+            continue
+        available = float(getattr(p, "qty_available", p.qty))
+        if available <= 0 or available >= 1.0:
+            continue
+
+        coid = _liq_client_order_id(p.symbol)
+        if coid in seen_orders:
+            log.info("Liquidation already submitted today for %s; skipping", p.symbol)
+            continue
+
+        try:
+            order = client.place_market_sell_qty(p.symbol, available, client_order_id=coid)
+        except Exception as e:
+            log.warning("Liquidation failed for %s: %s", p.symbol, e)
+            continue
+
+        market_value = float(getattr(p, "market_value", 0) or 0)
+        log.info("Liquidating orphan fraction: %s qty=%.4f value=$%.2f order_id=%s",
+                 p.symbol, available, market_value, order.id)
+        notifier.notify_orphan_liquidation(
+            symbol=p.symbol,
+            qty=available,
+            market_value=market_value,
+            order_id=str(order.id),
+        )
+        sold += 1
+
+    return sold
 
 
 def notify_recent_sell_fills(

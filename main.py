@@ -11,7 +11,12 @@ from data_source import Disclosure, fetch_recent_disclosures
 from filters import apply_signal_filters, dedupe_by_ticker
 from notifier import Notifier
 from reporter import build_snapshot, render_markdown
-from trader import ensure_trailing_stops, execute_buys, notify_recent_sell_fills
+from trader import (
+    ensure_trailing_stops,
+    execute_buys,
+    liquidate_orphan_fractions,
+    notify_recent_sell_fills,
+)
 
 
 def _setup_logging() -> None:
@@ -98,7 +103,15 @@ def main() -> int:
     except Exception as e:
         log.error("Trailing-stop loop failed: %s", e)
 
-    # 6. Write a portfolio report to the GitHub Actions job summary (Tier 1).
+    # 6. Liquidate orphan fractional positions (< 1 whole share) — they can't be
+    #    protected by trailing stops, so sell them and free the slot.
+    try:
+        sold = liquidate_orphan_fractions(cfg, client, notifier)
+        log.info("Orphan fractions liquidated this run: %d", sold)
+    except Exception as e:
+        log.error("Liquidate-orphans loop failed: %s", e)
+
+    # 7. Write a portfolio report to the GitHub Actions job summary (Tier 1).
     _write_job_summary(client)
 
     return 0
