@@ -45,11 +45,11 @@ jobs:
           ALPACA_API_SECRET: ${{ secrets.ALPACA_API_SECRET }}
           ALPACA_BASE_URL: ${{ secrets.ALPACA_BASE_URL }}
           QUIVER_API_KEY: ${{ secrets.QUIVER_API_KEY }}
-          POSITION_SIZE_USD: ${{ vars.POSITION_SIZE_USD || '500' }}
+          POSITION_SIZE_USD: ${{ vars.POSITION_SIZE_USD || '10000' }}
           TRAIL_PERCENT: ${{ vars.TRAIL_PERCENT || '5' }}
           MAX_CONCURRENT_POSITIONS: ${{ vars.MAX_CONCURRENT_POSITIONS || '10' }}
-          MAX_TOTAL_EXPOSURE_USD: ${{ vars.MAX_TOTAL_EXPOSURE_USD || '10000' }}
-          LOOKBACK_DAYS: ${{ vars.LOOKBACK_DAYS || '7' }}
+          MAX_TOTAL_EXPOSURE_USD: ${{ vars.MAX_TOTAL_EXPOSURE_USD || '100000' }}
+          LOOKBACK_DAYS: ${{ vars.LOOKBACK_DAYS || '30' }}
           MIN_TRADE_SIZE_USD: ${{ vars.MIN_TRADE_SIZE_USD || '15000' }}
           SMTP_HOST: ${{ secrets.SMTP_HOST }}
           SMTP_PORT: ${{ secrets.SMTP_PORT }}
